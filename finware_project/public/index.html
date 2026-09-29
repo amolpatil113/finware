@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FinWare — Banking &amp; Fintech Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<!--
+  Chart.js is served from the app's own /vendor folder so the dashboard works
+  offline and on a lab machine with no internet. The CDN is only a fallback:
+  if the local bundle is missing, load it from cdnjs and then re-run init().
+-->
+<script src="vendor/chart.umd.js"></script>
+<script>
+  if (typeof Chart === 'undefined') {
+    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"><\/script>');
+  }
+</script>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login-page">
+  <div class="login-card">
+    <div class="login-brand"><div class="mark">F</div><div class="word">FinWare</div></div>
+    <div class="login-tag">Banking &amp; Fintech Analytics</div>
+    <div class="login-title">Welcome back</div>
+    <div class="login-sub">Sign in to open the data warehouse dashboard.</div>
+    <div class="login-error" id="login-error">Incorrect email or password. Try the demo credentials below.</div>
+    <form id="login-form">
+      <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="admin@finware.com" autocomplete="username"></div>
+      <div class="field"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"></div>
+      <div class="login-row"><span></span><a href="#" id="forgot-link">Forgot password?</a></div>
+      <button type="submit" class="btn-login">Sign in</button>
+    </form>
+    <div class="login-hint">Demo access &middot; <code>admin@finware.com</code> / <code>finware2026</code></div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand"><div class="mark">F</div><div><div class="word">FinWare</div><div class="tag">Turn financial data into insight</div></div></div>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+    <div class="sidebar-foot">DWM Lab &middot; Star / Snowflake / Galaxy schema demo</div>
+  </aside>
+
+  <div class="app-main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger-btn" aria-label="Toggle menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+      </button>
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="global-search" placeholder="Search users, transactions, banks…">
+      </div>
+      <div class="topbar-actions">
+        <div class="date-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span id="topbar-range">—</span>
+        </div>
+        <button class="icon-btn" id="theme-toggle" title="Toggle theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="18.4" y1="18.4" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="5.6" y2="18.4"/><line x1="18.4" y1="5.6" x2="19.8" y2="4.2"/></svg>
+        </button>
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="dot"></span>
+        </button>
+        <div class="avatar-wrap">
+          <div class="avatar" id="avatar-btn"><div class="circle">A</div><span class="name">Admin</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="avatar-menu" id="avatar-menu">
+            <button data-nav="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile &amp; settings</button>
+            <button id="logout-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Log out</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content" id="main-content">
+
+      <!-- DASHBOARD -->
+      <section class="page" id="page-dashboard">
+        <div class="page-header">
+          <div><h1>Dashboard</h1><div class="sub">Single-glance summary across Fact_Transactions and Fact_CA_Sessions.</div></div>
+        </div>
+        <div class="filter-bar" id="dash-filters"></div>
+        <div class="kpi-grid" id="dash-kpis"></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Transaction value by category</h3><span class="muted">Star schema</span></div><div class="chart-wrap"><canvas id="chart-dash-category"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Transaction value by bank</h3></div><div class="chart-wrap"><canvas id="chart-dash-bank"></canvas></div></div>
+        </div>
+        <div class="chart-grid thirds">
+          <div class="card"><div class="card-header"><h3>CA session status</h3></div><div class="chart-wrap short"><canvas id="chart-dash-status"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Users by income bracket</h3></div><div class="chart-wrap short"><canvas id="chart-dash-income"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Daily transaction trend</h3></div><div class="chart-wrap short"><canvas id="chart-dash-trend"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Recent transactions</h3><span class="muted">Click a row for details</span></div>
+          <div class="table-scroll"><table><thead><tr><th>Txn ID</th><th>Date</th><th>User</th><th>Bank</th><th>Category</th><th>Amount</th><th>Type</th></tr></thead><tbody id="dash-recent-body"></tbody></table></div>
+        </div>
+
+        <!-- ANALYSIS & INSIGHTS — every chart below is driven by a real
+             /api/analytics/* SQL aggregate, not by client-side maths. -->
+        <section class="analysis-section" id="analysis-section">
+          <div class="section-header">
+            <div>
+              <h2>Analysis &amp; Insights</h2>
+              <div class="sub">Live aggregates from the warehouse — Star, Snowflake and Galaxy queries over the DWM tables.</div>
+            </div>
+            <div class="analysis-actions">
+              <span class="analysis-range" id="analysis-range"></span>
+              <button class="btn btn-outline btn-sm" id="analysis-refresh" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="insight-metrics" id="insight-metrics"></div>
+
+          <div class="analysis-grid" id="analysis-grid">
+            <div class="card chart-panel" data-panel="category">
+              <div class="card-header">
+                <h3>Transactions by Category</h3>
+                <span class="muted">Star schema</span>
+              </div>
+              <div class="chart-wrap analysis-wrap"><canvas id="chart-analytics-category"></canvas></div>
+              <div class="panel-state" data-state-for="category" hidden></div>
+            </div>
+
+            <div class="card chart-panel" data-panel="bank">
+              <div class="card-header">
+                <h3>Transactions by Bank</h3>
+                <span class="muted">Star schema</span>
+              </div>
+              <div class="chart-wrap analysis-wrap"><canvas id="chart-analytics-bank"></canvas></div>
+              <div class="panel-state" data-state-for="bank" hidden></div>
+            </div>
+
+            <div class="card chart-panel wide" data-panel="trend">
+              <div class="card-header">
+                <h3>Transaction Amount Trend</h3>
+                <span class="muted" id="analysis-trend-range">Full date range in Fact_Transactions</span>
+              </div>
+              <div class="chart-wrap analysis-wrap"><canvas id="chart-analytics-trend"></canvas></div>
+              <div class="panel-state" data-state-for="trend" hidden></div>
+            </div>
+
+            <div class="card chart-panel" data-panel="users">
+              <div class="card-header">
+                <h3>Top Users by Transaction Amount</h3>
+                <span class="muted">Snowflake schema</span>
+              </div>
+              <div class="chart-wrap analysis-wrap"><canvas id="chart-analytics-users"></canvas></div>
+              <div class="panel-state" data-state-for="users" hidden></div>
+            </div>
+
+            <div class="card chart-panel wide" data-panel="galaxy">
+              <div class="card-header">
+                <h3>Transaction Value vs. CA Session Fees</h3>
+                <span class="muted">Galaxy schema — two facts, conformed dimensions</span>
+              </div>
+              <div class="chart-wrap analysis-wrap"><canvas id="chart-analytics-galaxy"></canvas></div>
+              <div class="panel-state" data-state-for="galaxy" hidden></div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- SOURCE TABLES -->
+      <section class="page" id="page-source">
+        <div class="page-header"><div><h1>Source tables</h1><div class="sub">OLTP tables identified for the practical, before ETL into the warehouse.</div></div></div>
+        <div class="tabs" id="source-tabs"></div>
+        <div id="source-panels"></div>
+      </section>
+
+      <!-- DIMENSION TABLES -->
+      <section class="page" id="page-dimension">
+        <div class="page-header"><div><h1>Dimension tables</h1><div class="sub">Conformed dimensions shared across both fact tables.</div></div></div>
+        <div class="tabs" id="dim-tabs"></div>
+        <div id="dim-panels"></div>
+      </section>
+
+      <!-- FACT TABLES -->
+      <section class="page" id="page-fact">
+        <div class="page-header"><div><h1>Fact tables</h1><div class="sub">The two measure tables at the centre of the warehouse.</div></div></div>
+        <div class="tabs" id="fact-tabs"></div>
+        <div id="fact-panels"></div>
+      </section>
+
+      <!-- STAR SCHEMA -->
+      <section class="page" id="page-star">
+        <div class="page-header"><div><h1>Star schema</h1><div class="sub">Powers the Dashboard: fewest joins, fastest reads.</div></div></div>
+        <p class="schema-note">Fact_Transactions joins directly to four denormalized dimensions. Every KPI card and chart on the Dashboard is a straightforward aggregate over this shape.</p>
+        <div class="schema-svg-wrap" id="star-schema-svg"></div>
+      </section>
+
+      <!-- SNOWFLAKE SCHEMA -->
+      <section class="page" id="page-snowflake">
+        <div class="page-header"><div><h1>Snowflake schema</h1><div class="sub">Powers the per-dimension analysis pages: less redundancy, more joins.</div></div></div>
+        <p class="schema-note">Dim_User and Dim_Bank are normalized further into Dim_City / Dim_IncomeBracket and Dim_AccountType. User Analysis and Bank Analysis walk these extra hops.</p>
+        <div class="schema-svg-wrap" id="snowflake-schema-svg"></div>
+      </section>
+
+      <!-- GALAXY SCHEMA -->
+      <section class="page" id="page-galaxy">
+        <div class="page-header"><div><h1>Galaxy schema (fact constellation)</h1><div class="sub">Powers Custom Analysis: two fact tables, conformed dimensions.</div></div></div>
+        <p class="schema-note">Fact_Transactions and Fact_CA_Sessions share the conformed Dim_User and Dim_Date dimensions (dashed teal links), which is what makes it possible to compare spend against CA activity for the same user and date in one query.</p>
+        <div class="schema-svg-wrap" id="galaxy-schema-svg"></div>
+      </section>
+
+      <!-- TRANSACTIONS -->
+      <section class="page" id="page-transactions">
+        <div class="page-header">
+          <div><h1>Transactions</h1><div class="sub">Drill into Fact_Transactions.</div></div>
+          <div class="page-header-actions"><button class="btn btn-outline" id="txn-export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button></div>
+        </div>
+        <div class="filter-bar" id="txn-filters"></div>
+        <div class="kpi-grid" id="txn-kpis" style="grid-template-columns:repeat(4,1fr);"></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Transactions by category</h3></div><div class="chart-wrap"><canvas id="chart-txn-category"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Transactions by bank</h3></div><div class="chart-wrap"><canvas id="chart-txn-bank"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>All transactions</h3><span class="muted" id="txn-count-label"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>Txn ID</th><th>Date</th><th>User</th><th>Bank</th><th>Category</th><th>Amount</th><th>Type</th></tr></thead><tbody id="txn-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- CA SESSIONS -->
+      <section class="page" id="page-ca">
+        <div class="page-header"><div><h1>CA sessions</h1><div class="sub">Drill into Fact_CA_Sessions.</div></div></div>
+        <div class="filter-bar" id="ca-filters"></div>
+        <div class="kpi-grid" id="ca-kpis" style="grid-template-columns:repeat(5,1fr);"></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Session status</h3></div><div class="chart-wrap"><canvas id="chart-ca-status"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Revenue by CA</h3></div><div class="chart-wrap"><canvas id="chart-ca-revenue"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>All CA sessions</h3></div>
+          <div class="table-scroll"><table><thead><tr><th>Session ID</th><th>Date</th><th>User</th><th>CA</th><th>Fee</th><th>Status</th></tr></thead><tbody id="ca-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- USER ANALYSIS -->
+      <section class="page" id="page-user">
+        <div class="page-header"><div><h1>User analysis</h1><div class="sub">Slice activity by Dim_User (snowflaked into City and Income Bracket).</div></div></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Spending by user</h3></div><div class="chart-wrap"><canvas id="chart-user-spend"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Income bracket breakdown</h3></div><div class="chart-wrap"><canvas id="chart-user-income"></canvas></div></div>
+        </div>
+        <div class="chart-grid two">
+          <div class="card"><div class="card-header"><h3>City-wise distribution</h3></div><div class="chart-wrap"><canvas id="chart-user-city"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Spend vs. CA session fees</h3><span class="muted">Correlation</span></div><div class="chart-wrap"><canvas id="chart-user-correlation"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Users</h3></div>
+          <div class="table-scroll"><table><thead><tr><th>User</th><th>City</th><th>Income bracket</th><th>Account type</th><th>Total spend</th><th>CA fees</th></tr></thead><tbody id="user-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- BANK ANALYSIS -->
+      <section class="page" id="page-bank">
+        <div class="page-header"><div><h1>Bank analysis</h1><div class="sub">Slice activity by Dim_Bank (snowflaked into Account Type).</div></div></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Transaction value by bank</h3></div><div class="chart-wrap"><canvas id="chart-bank-value"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Share of total volume</h3></div><div class="chart-wrap"><canvas id="chart-bank-share"></canvas></div></div>
+        </div>
+        <div class="chart-grid two">
+          <div class="card"><div class="card-header"><h3>Account-type mix</h3></div><div class="chart-wrap"><canvas id="chart-bank-account"></canvas></div></div>
+          <div class="card">
+            <div class="card-header"><h3>Banks</h3></div>
+            <div class="table-scroll"><table><thead><tr><th>Bank</th><th>Transactions</th><th>Total value</th><th>Share</th></tr></thead><tbody id="bank-body"></tbody></table></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CATEGORY ANALYSIS -->
+      <section class="page" id="page-category">
+        <div class="page-header"><div><h1>Category analysis</h1><div class="sub">Slice activity by Dim_Category.</div></div></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Spend by category</h3></div><div class="chart-wrap"><canvas id="chart-cat-spend"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Spend by category group</h3></div><div class="chart-wrap"><canvas id="chart-cat-group"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Daily category activity</h3><span class="muted" id="cat-daily-range">—</span></div>
+          <div class="chart-wrap"><canvas id="chart-cat-daily"></canvas></div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><h3>Categories</h3></div>
+          <div class="table-scroll"><table><thead><tr><th>Category</th><th>Group</th><th>Transactions</th><th>Total spend</th></tr></thead><tbody id="cat-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- TIME ANALYSIS -->
+      <section class="page" id="page-time">
+        <div class="page-header"><div><h1>Time analysis</h1><div class="sub">Slice activity by Dim_Date.</div></div></div>
+        <div class="chart-grid">
+          <div class="card"><div class="card-header"><h3>Daily transaction trend</h3></div><div class="chart-wrap"><canvas id="chart-time-trend"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Value by weekday</h3></div><div class="chart-wrap"><canvas id="chart-time-weekday"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Debit vs. credit split</h3><span class="muted" id="time-split-range">—</span></div>
+          <div class="chart-wrap"><canvas id="chart-time-split"></canvas></div>
+        </div>
+        <p class="schema-note" style="margin-top:14px;">The current feed covers the dates present in <code>dim_date</code> (labelled above). Month-over-month and seasonal comparisons only become meaningful once a production feed extends Dim_Date across full periods — the daily and weekday views above are what the fact table actually supports today.</p>
+      </section>
+
+      <!-- CUSTOM ANALYSIS -->
+      <section class="page" id="page-custom">
+        <div class="page-header"><div><h1>Custom analysis</h1><div class="sub">Ad-hoc cross-fact querying — the galaxy-schema payoff.</div></div></div>
+        <div class="filter-bar" id="custom-filters"></div>
+        <div class="chart-grid two">
+          <div class="card"><div class="card-header"><h3>Transaction value vs. CA session fees</h3></div><div class="chart-wrap"><canvas id="chart-custom"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Insights</h3><span class="muted">Computed from the current selection</span></div><ul class="insight-list" id="custom-insights"></ul></div>
+        </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section class="page" id="page-reports">
+        <div class="page-header"><div><h1>Reports</h1><div class="sub">Generate and export deliverables.</div></div></div>
+        <div class="report-grid" id="report-grid"></div>
+      </section>
+
+      <!-- PROFILE -->
+      <section class="page" id="page-profile">
+        <div class="page-header"><div><h1>Profile &amp; settings</h1></div></div>
+        <div class="card profile-card">
+          <div class="profile-head"><div class="profile-avatar">A</div><div><h2 id="profile-name-display">Admin</h2><p id="profile-role-display">Data Warehouse Administrator &middot; admin@finware.com</p></div></div>
+          <div class="tabs"><button class="tab-btn active" data-ptab="details">Profile</button><button class="tab-btn" data-ptab="settings">Settings</button></div>
+          <div class="tab-panel active" id="ptab-details">
+            <div class="form-grid">
+              <div class="form-field"><label>Name</label><input id="profile-name" value="Admin"></div>
+              <div class="form-field"><label>Email</label><input id="profile-email" value="admin@finware.com"></div>
+              <div class="form-field"><label>Role</label><input id="profile-role" value="Data Warehouse Administrator"></div>
+              <div class="form-field"><label>Organization</label><input value="Vidyalankar Institute of Technology" disabled></div>
+            </div>
+            <button class="btn btn-primary" id="profile-save">Save changes</button>
+          </div>
+          <div class="tab-panel" id="ptab-settings">
+            <div class="settings-row"><div><h4>Dark mode</h4><p>Switch the workspace theme.</p></div><label class="switch"><input type="checkbox" id="dark-toggle"><span class="slider-toggle"></span></label></div>
+            <div class="settings-row"><div><h4>Email notifications</h4><p>Get notified about new CA sessions and large transactions.</p></div><label class="switch"><input type="checkbox" id="notif-toggle" checked><span class="slider-toggle"></span></label></div>
+            <div class="settings-row"><div><h4>Compact tables</h4><p>Reduce row height across data tables.</p></div><label class="switch"><input type="checkbox" id="compact-toggle"><span class="slider-toggle"></span></label></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-head"><h3 id="modal-title">Details</h3><button class="modal-close" id="modal-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

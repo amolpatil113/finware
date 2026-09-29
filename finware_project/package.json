@@ -1,0 +1,21 @@
+{
+  "name": "finware",
+  "version": "1.0.0",
+  "description": "FinWare - Banking & Fintech Data Warehouse Analytics Platform (DWM Lab project)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "chart.js": "^4.5.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
