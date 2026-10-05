@@ -5,7 +5,7 @@
 /* ============================================================
    DATA – the exact sample set from the lab practical
    ============================================================ */
-let DATA = { users: [], banks: [], categories: [], transactions: [], caSessions: [] };
+let DATA = { users: [], banks: [], categories: [], transactions: [], caSessions: [], dimDate: [] };
 
 /* API access – the frontend is served by the same Express server that
    exposes /api/*, so relative paths are all that's needed. */
@@ -52,6 +52,19 @@ const inr = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',
 const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
 const weekdayOf = d => WEEKDAYS[new Date(d+'T00:00:00').getDay()];
 
+/* Escape anything that came from the database (or a user) before it goes into
+   an innerHTML template. Every render helper below pipes its interpolated
+   values through this. */
+function escapeHtml(value){
+  if(value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function css(varName){ return getComputedStyle(document.documentElement).getPropertyValue(varName).trim(); }
 
 function toast(msg){
@@ -90,34 +103,37 @@ const ICONS = {
    NAVIGATION
    ============================================================ */
 /* Sidebar configuration.
-   The DWM schema pages (source / dimension / fact / star / snowflake / galaxy)
-   are deliberately absent here: they are technical reference material, so they
-   stay out of the main navigation. Nothing is removed underneath - the page
-   markup, the RENDERERS entries, the schema SVGs, the warehouse routes and the
-   analytics SQL all still exist, and showPage('star') still works. */
+   FinWare is presented as a banking & fintech analytics product. The Star /
+   Snowflake / Galaxy schemas and the source / dimension / fact table browsers
+   are deliberately not surfaced in the UI: they remain internal warehouse
+   implementation details, fully intact on the server side (schema.sqlite.sql,
+   dwm-schema-reference.sql, /api/warehouse/* and /api/analytics/*). */
 const NAV = [
   {group:'Overview', items:[
     {id:'dashboard', label:'Dashboard', icon:'dashboard'}
   ]},
   {group:'Analytics', items:[
     {id:'transactions', label:'Transactions', icon:'card'},
-    {id:'ca', label:'CA sessions', icon:'clock'},
-    {id:'user', label:'User analysis', icon:'users'},
-    {id:'bank', label:'Bank analysis', icon:'bank'},
-    {id:'category', label:'Category analysis', icon:'tag'},
-    {id:'time', label:'Time analysis', icon:'clock'},
-    {id:'custom', label:'Custom analysis', icon:'sliders'}
+    {id:'ca', label:'CA Sessions', icon:'clock'},
+    {id:'user', label:'User Analysis', icon:'users'},
+    {id:'bank', label:'Bank Analysis', icon:'bank'},
+    {id:'category', label:'Category Analysis', icon:'tag'},
+    {id:'time', label:'Time Analysis', icon:'clock'},
+    {id:'custom', label:'Custom Analysis', icon:'sliders'}
+  ]},
+  {group:'Insights', items:[
+    {id:'spending', label:'Spending Behaviour', icon:'dashboard'},
+    {id:'anomaly', label:'Anomaly Alerts', icon:'bell'},
+    {id:'recommendations', label:'Recommendations', icon:'bullet'}
   ]},
   {group:'Output', items:[
     {id:'reports', label:'Reports', icon:'file'}
   ]}
 ];
-/* Titles are kept for every page, including the unlinked schema pages, so
-   navigating to one programmatically still shows the correct heading. */
-const PAGE_TITLES = {dashboard:'Dashboard', source:'Source tables', dimension:'Dimension tables', fact:'Fact tables',
-  star:'Star schema', snowflake:'Snowflake schema', galaxy:'Galaxy schema', transactions:'Transactions',
-  ca:'CA sessions', user:'User analysis', bank:'Bank analysis', category:'Category analysis', time:'Time analysis',
-  custom:'Custom analysis', reports:'Reports', profile:'Profile & settings'};
+const PAGE_TITLES = {dashboard:'Dashboard', transactions:'Transactions',
+  ca:'CA Sessions', user:'User Analysis', bank:'Bank Analysis', category:'Category Analysis', time:'Time Analysis',
+  custom:'Custom Analysis', spending:'Spending Behaviour', anomaly:'Anomaly Alerts',
+  recommendations:'Recommendations', reports:'Reports', profile:'Profile & settings'};
 
 function buildNav(){
   const nav = $('#sidebar-nav');
@@ -163,7 +179,6 @@ function baseOptions(extra){
   return Object.assign(opts, extra||{});
 }
 
-const initedPages = {};
 function showPage(id){
   $$('.page').forEach(p=> p.classList.remove('active'));
   const target = $('#page-'+id);
@@ -207,7 +222,7 @@ function defaultFilterState(){
 const filterState = defaultFilterState();
 
 function optionsHtml(list, valueKey, labelKey, allLabel){
-  return `<option value="">${allLabel}</option>` + list.map(x=>`<option value="${x[valueKey]}">${x[labelKey]}</option>`).join('');
+  return `<option value="">${escapeHtml(allLabel)}</option>` + list.map(x=>`<option value="${escapeHtml(x[valueKey])}">${escapeHtml(x[labelKey])}</option>`).join('');
 }
 
 function buildFilterBar(container, state, fields, onApply){
@@ -263,6 +278,29 @@ const groupSum = (arr, keyFn, valFn) => {
   return m;
 };
 
+/* Income brackets are ordered by the natural low->high order of the values
+   actually present in dim_income_bracket, falling back to a numeric-aware sort
+   for any label that isn't a plain "<lo>-<hi> LPA" / "<n> LPA+" range. A
+   bracket added to the database therefore always appears, instead of silently
+   rendering as zero. */
+function orderedIncomeBrackets(){
+  const present = Array.from(new Set(DATA.users.map(u=>u.income).filter(Boolean)));
+  const numeric = label =>{
+    const range = String(label).match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+    if(range) return parseFloat(range[1]);
+    const plus = String(label).match(/^(\d+(?:\.\d+)?)\s*LPA\s*\+\s*$/i);
+    if(plus) return parseFloat(plus[1]);
+    return NaN;
+  };
+  return present.slice().sort((a,b)=>{
+    const na = numeric(a), nb = numeric(b);
+    if(!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    if(!Number.isNaN(na)) return -1;
+    if(!Number.isNaN(nb)) return 1;
+    return String(a).localeCompare(String(b));
+  });
+}
+
 /* ============================================================
    RENDER: DASHBOARD
    ============================================================ */
@@ -280,7 +318,13 @@ function renderDashboard(){
   const total = sum(txns, t=>t.amount);
   const debit = sum(txns.filter(t=>t.type==='DEBIT'), t=>t.amount);
   const credit = sum(txns.filter(t=>t.type==='CREDIT'), t=>t.amount);
-  const caRevenue = sum(DATA.caSessions, s=>s.fee);
+  // CA activity honours the same date range (and user, where one is selected)
+  // as the transaction KPIs, so every card on this page reflects one selection.
+  const dash = filterState.dash;
+  const caScoped = DATA.caSessions.filter(s=>
+    (!dash.user || s.userId===dash.user) && inRange(s.date, dash.from, dash.to)
+  );
+  const caRevenue = sum(caScoped, s=>s.fee);
 
   const kpis = [
     {label:'Total transactions', value:txns.length, icon:'txn', bg:'var(--accent-soft)', color:'var(--accent)'},
@@ -293,7 +337,7 @@ function renderDashboard(){
   $('#dash-kpis').innerHTML = kpis.map(k=>`
     <div class="kpi-card">
       <div class="kpi-top"><div class="kpi-icon" style="background:${k.bg}; color:${k.color};">${ICONS[k.icon]}</div></div>
-      <div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${escapeHtml(k.value)}</div><div class="kpi-label">${escapeHtml(k.label)}</div>
     </div>`).join('');
 
   const catTotals = groupSum(txns, t=>t.categoryId, t=>t.amount);
@@ -302,15 +346,11 @@ function renderDashboard(){
   const bankTotals = groupSum(txns, t=>t.bankId, t=>t.amount);
   makeChart('chart-dash-bank', {type:'doughnut', data:{labels:DATA.banks.map(b=>b.name), datasets:[{data:DATA.banks.map(b=>bankTotals[b.id]||0), backgroundColor:PALETTE, borderWidth:0}]}, options: baseOptions({scales:{}, cutout:'62%'})});
 
-  const statusCounts = groupSum(DATA.caSessions, s=>s.status, ()=>1);
+  const statusCounts = groupSum(caScoped, s=>s.status, ()=>1);
   makeChart('chart-dash-status', {type:'doughnut', data:{labels:['Completed','Scheduled','Cancelled'], datasets:[{data:[statusCounts.Completed||0, statusCounts.Scheduled||0, statusCounts.Cancelled||0], backgroundColor:[css('--teal'),css('--amber'),css('--coral')], borderWidth:0}]}, options: baseOptions({scales:{}, cutout:'62%'})});
 
-  // Bracket order comes from the dimension, not a hardcoded list, so a new
-  // income bracket in the warehouse shows up without a code change.
-  const bracketOrder = ['5-10 LPA','10-15 LPA','15-25 LPA','25 LPA+'];
+  const incomeOrder = orderedIncomeBrackets();
   const incomeCounts = groupSum(DATA.users, u=>u.income, ()=>1);
-  const incomeOrder = bracketOrder.filter(b=> b in incomeCounts)
-    .concat(Object.keys(incomeCounts).filter(b=> !bracketOrder.includes(b)).sort());
   makeChart('chart-dash-income', {type:'bar', data:{labels:incomeOrder, datasets:[{label:'Users', data:incomeOrder.map(i=>incomeCounts[i]||0), backgroundColor:css('--accent'), borderRadius:6}]}, options: baseOptions({plugins:{legend:{display:false}}})});
 
   const dates = DATA.transactions.map(t=>t.date).sort();
@@ -456,9 +496,9 @@ function renderInsightMetrics(s){
   ];
   box.innerHTML = tiles.map(t=>`
     <div class="insight-metric">
-      <div class="insight-metric-label">${t.label}</div>
-      <div class="insight-metric-value">${t.value}</div>
-      <div class="insight-metric-sub">${t.sub}</div>
+      <div class="insight-metric-label">${escapeHtml(t.label)}</div>
+      <div class="insight-metric-value">${escapeHtml(t.value)}</div>
+      <div class="insight-metric-sub">${escapeHtml(t.sub)}</div>
     </div>`).join('');
 }
 
@@ -603,17 +643,16 @@ function renderGalaxyChart(rows){
 }
 
 function rowTxnHtml(t){
-  return `<tr data-txn="${t.id}"><td>${t.id}</td><td>${fmtDate(t.date)}</td><td>${userName(t.userId)}</td><td>${bankName(t.bankId)}</td><td>${catName(t.categoryId)}</td>
-    <td class="${t.type==='DEBIT'?'amt-debit':'amt-credit'}">${inr(t.amount)}</td><td><span class="badge ${t.type.toLowerCase()}">${t.type}</span></td></tr>`;
+  return `<tr data-txn="${escapeHtml(t.id)}"><td>${escapeHtml(t.id)}</td><td>${escapeHtml(fmtDate(t.date))}</td><td>${escapeHtml(userName(t.userId))}</td><td>${escapeHtml(bankName(t.bankId))}</td><td>${escapeHtml(catName(t.categoryId))}</td>
+    <td class="${t.type==='DEBIT'?'amt-debit':'amt-credit'}">${escapeHtml(inr(t.amount))}</td><td><span class="badge ${t.type==='DEBIT'?'debit':'credit'}">${escapeHtml(t.type)}</span></td></tr>`;
 }
 function wireTxnRowClicks(scopeSel){
   $$(scopeSel+' tr[data-txn]').forEach(tr=>{
     tr.addEventListener('click', ()=>{
       const t = byId(DATA.transactions, tr.dataset.txn);
-      openModal('Transaction '+t.id, [
-        ['Date', fmtDate(t.date)], ['User', userName(t.userId)], ['Bank', bankName(t.bankId)],
-        ['Category', catName(t.categoryId)], ['Type', t.type], ['Amount', inr(t.amount)]
-      ]);
+      if(!t) return;
+      // Every transaction opens the backend-calculated risk assessment.
+      openTransactionRisk(t.id);
     });
   });
 }
@@ -621,148 +660,30 @@ function wireCaRowClicks(scopeSel){
   $$(scopeSel+' tr[data-ca]').forEach(tr=>{
     tr.addEventListener('click', ()=>{
       const s = byId(DATA.caSessions, tr.dataset.ca);
+      if(!s) return;
       openModal('CA session '+s.id, [
-        ['Date', fmtDate(s.date)], ['User', userName(s.userId)], ['CA', s.caId],
-        ['Fee', inr(s.fee)], ['Status', s.status]
+        ['Date', fmtDate(s.date)], ['User', userName(s.userId)],
+        ['CA', s.caName || s.caId], ['Fee', inr(s.fee)], ['Status', s.status]
       ]);
     });
   });
 }
 function openModal(title, rows){
   $('#modal-title').textContent = title;
-  $('#modal-body').innerHTML = rows.map(r=>`<div class="modal-row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('');
+  $('#modal-body').innerHTML = rows.map(r=>`<div class="modal-row"><span>${escapeHtml(r[0])}</span><span>${escapeHtml(r[1])}</span></div>`).join('');
   $('#modal-overlay').classList.add('show');
 }
 
 /* ============================================================
-   RENDER: SOURCE / DIMENSION / FACT TABLES
+   DWM INTERNALS - NOT SURFACED IN THE UI
+   The Star / Snowflake / Galaxy schemas and the source / dimension /
+   fact table browsers are no longer rendered here: FinWare presents as a
+   banking & fintech analytics product. They remain fully implemented on
+   the server side - database/schema.sqlite.sql,
+   database/dwm-schema-reference.sql, /api/warehouse/* (including the
+   whitelisted /source/:table endpoint) and /api/analytics/* - and are
+   treated as internal warehouse implementation details.
    ============================================================ */
-function renderTabsPage(tabsSel, panelsSel, defs){
-  const tabsEl = $(tabsSel), panelsEl = $(panelsSel);
-  if(tabsEl.childElementCount===0){
-    tabsEl.innerHTML = defs.map((d,i)=>`<button class="tab-btn ${i===0?'active':''}" data-tab="${d.id}">${d.title}</button>`).join('');
-    panelsEl.innerHTML = defs.map((d,i)=>`<div class="tab-panel ${i===0?'active':''}" id="tabpanel-${d.id}"><div class="card"><div class="table-scroll">${tableHtml(d.columns, d.rows)}</div></div></div>`).join('');
-    $$('.tab-btn', tabsEl).forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        $$('.tab-btn', tabsEl).forEach(b=> b.classList.remove('active'));
-        btn.classList.add('active');
-        $$('.tab-panel', panelsEl).forEach(p=> p.classList.remove('active'));
-        $('#tabpanel-'+btn.dataset.tab, panelsEl).classList.add('active');
-      });
-    });
-  }
-}
-function tableHtml(columns, rows){
-  return `<table><thead><tr>${columns.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-}
-
-function renderSourceTables(){
-  renderTabsPage('#source-tabs', '#source-panels', [
-    {id:'txnraw', title:'Transaction_Raw', columns:['txn_id','txn_date','user_id','bank_id','category_id','amount','txn_type'],
-      rows: DATA.transactions.map(t=>[t.id,t.date,t.userId,t.bankId,t.categoryId,inr(t.amount),t.type])},
-    {id:'usermaster', title:'User_Master', columns:['user_id','full_name','city','income_bracket','account_type'],
-      rows: DATA.users.map(u=>[u.id,u.name,u.city,u.income,u.accountType])},
-    {id:'bankmaster', title:'Bank_Master', columns:['bank_id','bank_name','bank_type'],
-      rows: DATA.banks.map(b=>[b.id,b.name, b.id==='B02'?'Private (Foreign JV)':'Private'])}
-  ]);
-}
-function renderDimensionTables(){
-  renderTabsPage('#dim-tabs', '#dim-panels', [
-    {id:'dimuser', title:'Dim_User', columns:['User_ID','User_Name','City','Income_Bracket'],
-      rows: DATA.users.map(u=>[u.id,u.name,u.city,u.income])},
-    {id:'dimbank', title:'Dim_Bank', columns:['Bank_ID','Bank_Name','Account_Type'],
-      rows: DATA.banks.map(b=>[b.id,b.name, DATA.users.find(u=> DATA.transactions.some(t=>t.bankId===b.id && t.userId===u.id))?.accountType || 'Savings'])},
-    {id:'dimcategory', title:'Dim_Category', columns:['Category_ID','Category_Name','Category_Group'],
-      rows: DATA.categories.map(c=>[c.id,c.name,c.group])},
-    {id:'dimdate', title:'Dim_Date', columns:['Date_ID','Date','Weekday','Month','Quarter','Year'],
-      rows: DATA.transactions.map(t=>t.date).sort().map((d,i)=>['D'+(i+1), fmtDate(d), weekdayOf(d), 'April', 'Q1 (FY26-27)', '2026'])}
-  ]);
-}
-function renderFactTables(){
-  renderTabsPage('#fact-tabs', '#fact-panels', [
-    {id:'facttxn', title:'Fact_Transactions', columns:['Txn_ID','Date_ID (FK)','User_ID (FK)','Bank_ID (FK)','Category_ID (FK)','Amount','Type'],
-      rows: DATA.transactions.map((t,i)=>[t.id,'D'+(i+1),t.userId,t.bankId,t.categoryId,inr(t.amount),t.type])},
-    {id:'factca', title:'Fact_CA_Sessions', columns:['Session_ID','Date_ID (FK)','User_ID (FK)','CA_ID','Fee_Amount','Status'],
-      rows: DATA.caSessions.map((s,i)=>[s.id,'D'+(i+1),s.userId,s.caId,inr(s.fee),s.status])}
-  ]);
-}
-
-/* ============================================================
-   RENDER: SCHEMA DIAGRAMS (static SVGs, built once)
-   ============================================================ */
-function schemaNode(cx, cy, w, h, title, fields, isFact){
-  const x = cx - w/2, y = cy - h/2;
-  const cls = isFact ? 'fact' : '';
-  const titleCls = isFact ? 'fact-title' : '';
-  const fieldCls = isFact ? 'fact-field' : '';
-  const divCls = isFact ? 'fact-divider' : '';
-  const fieldsSvg = fields.map((f,i)=> `<text x="${cx}" y="${y+42+i*15}" text-anchor="middle" class="schema-field ${fieldCls}">${f}</text>`).join('');
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" class="schema-node ${cls}"></rect>
-    <text x="${cx}" y="${y+24}" text-anchor="middle" class="schema-title ${titleCls}">${title}</text>
-    <line x1="${x+12}" y1="${y+32}" x2="${x+w-12}" y2="${y+32}" class="schema-divider ${divCls}"></line>
-    ${fieldsSvg}`;
-}
-function schemaLine(x1,y1,x2,y2,conformed){
-  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="schema-link ${conformed?'conformed':''}"></line>`;
-}
-
-function buildStarSchema(){
-  const svg = `<svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg">
-    ${schemaLine(250,120,432,212)}
-    ${schemaLine(750,120,568,212)}
-    ${schemaLine(250,398,432,308)}
-    ${schemaLine(750,398,568,308)}
-    ${schemaNode(500,260,220,130,'Fact_Transactions',['Txn_ID (PK)','Date_ID (FK)','User_ID (FK)','Bank_ID (FK)','Category_ID (FK)','Amount, Type'],true)}
-    ${schemaNode(150,100,190,110,'Dim_User',['User_ID (PK)','User_Name','City','Income_Bracket'])}
-    ${schemaNode(850,100,190,110,'Dim_Bank',['Bank_ID (PK)','Bank_Name'])}
-    ${schemaNode(150,420,190,110,'Dim_Category',['Category_ID (PK)','Category_Name','Category_Group'])}
-    ${schemaNode(850,420,190,110,'Dim_Date',['Date_ID (PK)','Date','Month, Quarter, Year'])}
-  </svg>`;
-  $('#star-schema-svg').innerHTML = svg;
-}
-
-function buildSnowflakeSchema(){
-  const svg = `<svg viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg">
-    ${schemaLine(325,175,440,300)}
-    ${schemaLine(775,175,660,300)}
-    ${schemaLine(325,555,440,410)}
-    ${schemaLine(775,555,660,410)}
-    ${schemaLine(155,120,230,175)}
-    ${schemaLine(155,270,230,190)}
-    ${schemaLine(945,105,870,160)}
-    ${schemaNode(550,355,230,140,'Fact_Transactions',['Txn_ID (PK)','Date_ID (FK)','User_ID (FK)','Bank_ID (FK)','Category_ID (FK)','Amount, Type'],true)}
-    ${schemaNode(230,150,180,100,'Dim_User',['User_ID (PK)','User_Name'])}
-    ${schemaNode(870,150,180,100,'Dim_Bank',['Bank_ID (PK)','Bank_Name'])}
-    ${schemaNode(230,560,190,100,'Dim_Category',['Category_ID (PK)','Category_Name','Category_Group'])}
-    ${schemaNode(870,560,190,100,'Dim_Date',['Date_ID (PK)','Date','Month, Quarter, Year'])}
-    ${schemaNode(80,60,160,80,'Dim_City',['City_ID (PK)','City_Name','State'])}
-    ${schemaNode(95,290,170,80,'Dim_IncomeBracket',['Income_ID (PK)','Bracket_Label'])}
-    ${schemaNode(1015,60,160,80,'Dim_AccountType',['AccType_ID (PK)','Account_Type'])}
-    <text x="550" y="670" text-anchor="middle" class="schema-caption">Dim_User and Dim_Bank normalize further – more joins, less redundancy.</text>
-  </svg>`;
-  $('#snowflake-schema-svg').innerHTML = svg;
-}
-
-function buildGalaxySchema(){
-  const svg = `<svg viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg">
-    ${schemaLine(460,175,430,290,true)}
-    ${schemaLine(640,175,670,290,true)}
-    ${schemaLine(460,545,430,410,true)}
-    ${schemaLine(640,545,670,410,true)}
-    ${schemaLine(150,195,230,300)}
-    ${schemaLine(150,510,230,410)}
-    ${schemaLine(950,195,870,300)}
-    ${schemaNode(300,350,220,130,'Fact_Transactions',['Txn_ID (PK)','Date_ID (FK)','User_ID (FK)','Bank_ID (FK)','Category_ID (FK)','Amount, Type'],true)}
-    ${schemaNode(800,350,220,130,'Fact_CA_Sessions',['Session_ID (PK)','Date_ID (FK)','User_ID (FK)','CA_ID','Fee_Amount, Status'],true)}
-    ${schemaNode(550,130,200,100,'Dim_User',['User_ID (PK)','User_Name','City','Income_Bracket'])}
-    ${schemaNode(550,590,200,100,'Dim_Date',['Date_ID (PK)','Date','Month, Quarter, Year'])}
-    ${schemaNode(90,150,170,100,'Dim_Bank',['Bank_ID (PK)','Bank_Name'])}
-    ${schemaNode(90,555,180,100,'Dim_Category',['Category_ID (PK)','Category_Name'])}
-    ${schemaNode(1005,150,170,100,'Dim_CA',['CA_ID (PK)','CA_Name'])}
-    <text x="550" y="670" text-anchor="middle" class="schema-caption">Dashed teal links = conformed dimensions shared by both fact tables.</text>
-  </svg>`;
-  $('#galaxy-schema-svg').innerHTML = svg;
-}
 
 /* ============================================================
    RENDER: TRANSACTIONS PAGE
@@ -786,7 +707,7 @@ function renderTransactionsPage(){
     {label:'Total value', value:inr(total), color:'var(--accent)', bg:'var(--accent-soft)'},
     {label:'Debit', value:inr(debit), color:'var(--coral)', bg:'var(--coral-soft)'},
     {label:'Credit', value:inr(credit), color:'var(--teal)', bg:'var(--teal-soft)'}
-  ].map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.bg};color:${k.color};">${ICONS.txn}</div></div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div>`).join('');
+  ].map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.bg};color:${k.color};">${ICONS.txn}</div></div><div class="kpi-value">${escapeHtml(k.value)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`).join('');
 
   const catTotals = groupSum(txns, t=>t.categoryId, t=>t.amount);
   makeChart('chart-txn-category', {type:'bar', data:{labels:DATA.categories.map(c=>c.name), datasets:[{data:DATA.categories.map(c=>catTotals[c.id]||0), backgroundColor:PALETTE, borderRadius:6}]}, options: baseOptions({plugins:{legend:{display:false}}})});
@@ -825,7 +746,7 @@ function renderCaPage(){
     {label:'Scheduled', value:statusCounts.Scheduled||0, color:'var(--amber)', bg:'var(--amber-soft)'},
     {label:'Cancelled', value:statusCounts.Cancelled||0, color:'var(--coral)', bg:'var(--coral-soft)'},
     {label:'Total revenue', value:inr(revenue), color:'var(--violet)', bg:'var(--violet-soft)'}
-  ].map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.bg};color:${k.color};">${ICONS.clock}</div></div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div>`).join('');
+  ].map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.bg};color:${k.color};">${ICONS.clock}</div></div><div class="kpi-value">${escapeHtml(k.value)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`).join('');
 
   makeChart('chart-ca-status', {type:'doughnut', data:{labels:['Completed','Scheduled','Cancelled'], datasets:[{data:[statusCounts.Completed||0,statusCounts.Scheduled||0,statusCounts.Cancelled||0], backgroundColor:[css('--teal'),css('--amber'),css('--coral')], borderWidth:0}]}, options: baseOptions({scales:{}, cutout:'60%'})});
   const caRevenue = groupSum(sessions, s=>s.caId, s=>s.fee);
@@ -833,8 +754,8 @@ function renderCaPage(){
   makeChart('chart-ca-revenue', {type:'bar', data:{labels:caList, datasets:[{data:caList.map(c=>caRevenue[c]), backgroundColor:css('--violet'), borderRadius:6}]}, options: baseOptions({plugins:{legend:{display:false}}})});
 
   $('#ca-body').innerHTML = sessions.map(s=>`
-    <tr data-ca="${s.id}"><td>${s.id}</td><td>${fmtDate(s.date)}</td><td>${userName(s.userId)}</td><td>${s.caId}</td><td>${inr(s.fee)}</td>
-    <td><span class="badge ${s.status.toLowerCase()}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="6" class="empty-note">No sessions match these filters.</td></tr>`;
+    <tr data-ca="${escapeHtml(s.id)}"><td>${escapeHtml(s.id)}</td><td>${escapeHtml(fmtDate(s.date))}</td><td>${escapeHtml(userName(s.userId))}</td><td>${escapeHtml(s.caName || s.caId)}</td><td>${escapeHtml(inr(s.fee))}</td>
+    <td><span class="badge ${s.status==='Completed'?'completed':(s.status==='Scheduled'?'scheduled':'cancelled')}">${escapeHtml(s.status)}</span></td></tr>`).join('') || `<tr><td colspan="6" class="empty-note">No sessions match these filters.</td></tr>`;
   wireCaRowClicks('#ca-body');
 }
 
@@ -848,7 +769,7 @@ function renderUserAnalysis(){
 
   makeChart('chart-user-spend', {type:'bar', data:{labels:DATA.users.map(u=>u.name), datasets:[{data:userIds.map(id=>spendByUser[id]||0), backgroundColor:PALETTE, borderRadius:6}]}, options: baseOptions({plugins:{legend:{display:false}}})});
 
-  const incomeOrder = ['5-10 LPA','10-15 LPA','15-25 LPA','25 LPA+'];
+  const incomeOrder = orderedIncomeBrackets();
   const incomeCounts = groupSum(DATA.users, u=>u.income, ()=>1);
   makeChart('chart-user-income', {type:'doughnut', data:{labels:incomeOrder, datasets:[{data:incomeOrder.map(i=>incomeCounts[i]||0), backgroundColor:PALETTE, borderWidth:0}]}, options: baseOptions({scales:{}, cutout:'60%'})});
 
@@ -861,7 +782,7 @@ function renderUserAnalysis(){
     ]}, options: baseOptions({})});
 
   $('#user-body').innerHTML = DATA.users.map(u=>`
-    <tr><td>${u.name}</td><td>${u.city}</td><td>${u.income}</td><td>${u.accountType}</td><td>${inr(spendByUser[u.id]||0)}</td><td>${inr(feeByUser[u.id]||0)}</td></tr>`).join('');
+    <tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.city)}</td><td>${escapeHtml(u.income)}</td><td>${escapeHtml(u.accountType)}</td><td>${escapeHtml(inr(spendByUser[u.id]||0))}</td><td>${escapeHtml(inr(feeByUser[u.id]||0))}</td></tr>`).join('');
 }
 
 /* ============================================================
@@ -881,7 +802,7 @@ function renderBankAnalysis(){
   $('#bank-body').innerHTML = DATA.banks.map(b=>{
     const v = valueByBank[b.id]||0;
     const share = total ? (v/total*100) : 0;
-    return `<tr><td>${b.name}</td><td>${countByBank[b.id]||0}</td><td>${inr(v)}</td><td>${share.toFixed(1)}%</td></tr>`;
+    return `<tr><td>${escapeHtml(b.name)}</td><td>${escapeHtml(countByBank[b.id]||0)}</td><td>${escapeHtml(inr(v))}</td><td>${escapeHtml(share.toFixed(1)+'%')}</td></tr>`;
   }).join('');
 }
 
@@ -908,7 +829,7 @@ function renderCategoryAnalysis(){
   const catRange = $('#cat-daily-range');
   if(catRange) catRange.textContent = rangeLabel() + ' · ' + dates.length + ' days';
 
-  $('#cat-body').innerHTML = DATA.categories.map(c=>`<tr><td>${c.name}</td><td>${c.group}</td><td>${countByCat[c.id]||0}</td><td>${inr(spendByCat[c.id]||0)}</td></tr>`).join('');
+  $('#cat-body').innerHTML = DATA.categories.map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.group)}</td><td>${escapeHtml(countByCat[c.id]||0)}</td><td>${escapeHtml(inr(spendByCat[c.id]||0))}</td></tr>`).join('');
 }
 
 /* ============================================================
@@ -975,7 +896,7 @@ function renderCustomAnalysis(){
       ? `Higher-spending users in this selection are also engaging with CA advisory sessions.`
       : `The highest spenders in this selection haven't booked a CA session yet – a possible upsell opportunity.`);
   }
-  $('#custom-insights').innerHTML = insights.map(t=>`<li><span class="ibullet">${ICONS.bullet}</span><span>${t}</span></li>`).join('');
+  $('#custom-insights').innerHTML = insights.map(t=>`<li><span class="ibullet">${ICONS.bullet}</span><span>${escapeHtml(t)}</span></li>`).join('');
 }
 
 /* ============================================================
@@ -1055,7 +976,7 @@ function renderProfile(){
   });
   $('#profile-save').onclick = ()=>{
     $('#profile-name-display').textContent = $('#profile-name').value || 'Admin';
-    $('#profile-role-display').textContent = ($('#profile-role').value||'Administrator') + ' Â· ' + ($('#profile-email').value||'');
+    $('#profile-role-display').textContent = ($('#profile-role').value||'Administrator') + ' · ' + ($('#profile-email').value||'');
     toast('Profile updated.');
   };
   $('#dark-toggle').checked = document.documentElement.getAttribute('data-theme')==='dark';
@@ -1084,14 +1005,273 @@ function isDark(){
 /* ============================================================
    RENDERER MAP + INIT
    ============================================================ */
+/* ============================================================
+   INSIGHTS – BEHAVIOUR, ANOMALIES, RECOMMENDATIONS, RISK
+   ------------------------------------------------------------
+   All figures rendered on these pages are returned by
+   /api/insights/*, which computes them from the warehouse fact
+   tables on the server. Nothing is predicted or scored here, and
+   no value is hardcoded in this file.
+   ============================================================ */
+const insightState = { spendingUser:null, recUser:null, anomalyUser:'', anomalyStatus:'' };
+
+const INSUFFICIENT_MSG = 'Insufficient transaction history for a reliable behavioural prediction.';
+
+function metricTile(label, value, sub){
+  return `<div class="insight-metric"><div class="insight-metric-label">${escapeHtml(label)}</div>`
+       + `<div class="insight-metric-value">${escapeHtml(value)}</div>`
+       + (sub ? `<div class="insight-metric-sub">${escapeHtml(sub)}</div>` : '')
+       + '</div>';
+}
+function metricError(message){
+  return `<div class="insight-metric error">${escapeHtml(message)}</div>`;
+}
+const riskBadge = level => `<span class="badge ${escapeHtml(String(level).toLowerCase())}">${escapeHtml(level)}</span>`;
+const statusBadge = status => `<span class="badge ${status==='ANOMALOUS'?'anomalous':'normal'}">${escapeHtml(status)}</span>`;
+
+/* Populate a customer <select> from the users already loaded by
+   /api/warehouse/all, preserving whatever is currently chosen. */
+function fillCustomerSelect(sel, stateKey, allowBlank){
+  if(!sel) return '';
+  if(sel.dataset.filled !== '1'){
+    const blank = allowBlank ? '<option value="">All customers</option>' : '';
+    sel.innerHTML = blank + DATA.users.map(u=>`<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)} (${escapeHtml(u.id)})</option>`).join('');
+    sel.dataset.filled = '1';
+    sel.addEventListener('change', ()=>{ insightState[stateKey] = sel.value; });
+  }
+  const wanted = insightState[stateKey];
+  const exists = DATA.users.some(u=>u.id===wanted);
+  sel.value = exists ? wanted : (allowBlank ? '' : (DATA.users[0]||{}).id || '');
+  insightState[stateKey] = sel.value;
+  return sel.value;
+}
+
+/* Fetch an insights endpoint, surfacing the server's message on failure. */
+async function fetchInsight(path){
+  const res = await apiFetch(path);
+  const body = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
+  return body;
+}
+
+/* TRANSACTION RISK – opened from any transaction row (Transactions,
+   Dashboard, Category/Time analysis and the anomaly table). */
+async function openTransactionRisk(txnId){
+  openModal('Transaction ' + txnId, [['Assessment','Loading…']]);
+  try{
+    const d = await fetchInsight('/api/insights/transaction/' + encodeURIComponent(txnId) + '/risk');
+    const t = d.transaction, r = d.risk;
+    const baselineLabel = r.baselineSource === 'category'
+      ? inr(r.baseline) + ' (' + r.baselineSample + '-transaction category average)'
+      : inr(r.baseline) + ' (overall average)';
+    const rows = [
+      ['Amount', inr(t.amount)],
+      ['Date', fmtDate(t.date)],
+      ['Customer', t.userName || t.userId],
+      ['Bank', t.bank],
+      ['Category', t.categoryName],
+      ['Type', t.type],
+      ['Status', r.status],
+      ['Risk', r.level],
+      ['Risk score', r.score + ' / 100'],
+      ['Usual amount', baselineLabel],
+      ['Share of customer spend', r.shareOfLifetimeSpend + '%']
+    ];
+    $('#modal-title').textContent = 'Transaction ' + t.txnId + ' – Risk';
+    $('#modal-body').innerHTML =
+      rows.map(row=>`<div class="modal-row"><span>${escapeHtml(row[0])}</span><span>${escapeHtml(row[1])}</span></div>`).join('')
+      + `<div class="rec-tag">Reason</div><div class="rec-why">${escapeHtml(r.reason)}</div>`;
+  }catch(err){
+    $('#modal-body').innerHTML = metricError('Could not load the risk assessment: ' + (err && err.message ? err.message : 'unknown error'));
+  }
+}
+
+/* Attach risk lookups to every rendered transaction row. */
+function wireRiskRowClicks(scope){
+  const root = typeof scope === 'string' ? $(scope) : scope;
+  if(!root) return;
+  $$('tr[data-txn]', root).forEach(tr=>{
+    if(tr.dataset.riskWired === '1') return;
+    tr.dataset.riskWired = '1';
+    tr.addEventListener('click', ()=> openTransactionRisk(tr.dataset.txn));
+  });
+}
+
+/* ---------------- SPENDING BEHAVIOUR ---------------- */
+async function renderSpendingBehaviour(){
+  const userId = fillCustomerSelect($('#spending-user'),'spendingUser',false);
+  const box = $('#spending-metrics'), insight = $('#spending-insight'),
+        period = $('#spending-period'), catBody = $('#spending-cat-body');
+  if(!box) return;
+
+  if(!userId){
+    box.innerHTML = metricError('No customers were returned by the warehouse.');
+    return;
+  }
+
+  box.innerHTML = '<div class="insight-metric"><div class="insight-metric-sub">Calculating from recorded transactions…</div></div>';
+
+  try{
+    const d = await fetchInsight('/api/insights/customer/' + encodeURIComponent(userId) + '/spending');
+
+    if(!d.sufficientHistory){
+      const message = d.message || INSUFFICIENT_MSG;
+      box.innerHTML = metricError(message);
+      if(insight) insight.textContent = message;
+      if(period) period.textContent = '';
+      if(catBody) catBody.innerHTML = '';
+      return;
+    }
+
+    box.innerHTML = [
+      metricTile('Predicted behaviour', d.behaviour, 'Spending trend: ' + d.spendingTrend),
+      metricTile('Primary category', d.primaryCategory ? d.primaryCategory.name : '—',
+                 d.primaryCategory ? d.primaryCategory.shareOfSpend + '% of spend' : ''),
+      metricTile('Transaction frequency', d.transactionFrequency,
+                 (d.frequencyDetail.changePct >= 0 ? '+' : '') + d.frequencyDetail.changePct + '% vs earlier period'),
+      metricTile('Average transaction', inr(d.averageTransaction), d.totalTransactions + ' transactions'),
+      metricTile('Total spending', inr(d.totalSpending), 'Highest ' + inr(d.highestTransaction)),
+      metricTile('Debit transactions', String(d.debitCount), 'Outgoing'),
+      metricTile('Credit transactions', String(d.creditCount), 'Incoming'),
+      metricTile('Highest transaction', inr(d.highestTransaction), 'Largest single payment')
+    ].join('');
+
+    if(insight) insight.textContent = d.insight;
+    if(period) period.textContent = d.period ? fmtDate(d.period.firstDate) + ' – ' + fmtDate(d.period.lastDate) : '';
+
+    if(catBody){
+      catBody.innerHTML = d.categories.map(c=>`<tr>
+        <td>${escapeHtml(c.name)}</td>
+        <td>${escapeHtml(c.group)}</td>
+        <td>${escapeHtml(c.transactionCount)}</td>
+        <td class="${'amt-debit'}">${escapeHtml(inr(c.totalSpend))}</td>
+        <td>${escapeHtml(inr(c.averageAmount))}</td>
+        <td>${escapeHtml(c.shareOfSpend + '%')}</td>
+      </tr>`).join('');
+    }
+  }catch(err){
+    box.innerHTML = metricError('Could not load spending behaviour: ' + (err && err.message ? err.message : 'unknown error'));
+    if(catBody) catBody.innerHTML = '';
+  }
+}
+
+/* ---------------- ANOMALY ALERTS ---------------- */
+async function renderAnomalyAlerts(){
+  const userId = fillCustomerSelect($('#anomaly-user'),'anomalyUser',true);
+  const statusSel = $('#anomaly-status');
+  if(statusSel && statusSel.dataset.filled !== '1'){
+    statusSel.dataset.filled = '1';
+    statusSel.addEventListener('change', ()=>{ insightState.anomalyStatus = statusSel.value; renderAnomalyAlerts(); });
+  }
+  const status = insightState.anomalyStatus;
+  const kpis = $('#anomaly-kpis'), body = $('#anomaly-body'), empty = $('#anomaly-empty');
+  if(!kpis) return;
+
+  kpis.innerHTML = '<div class="insight-metric"><div class="insight-metric-sub">Reviewing recorded transactions…</div></div>';
+
+  const params = [];
+  if(userId) params.push('user=' + encodeURIComponent(userId));
+  if(status) params.push('status=' + encodeURIComponent(status));
+
+  try{
+    const d = await fetchInsight('/api/insights/anomalies' + (params.length ? '?' + params.join('&') : ''));
+    const c = d.counts;
+
+    kpis.innerHTML = [
+      metricTile('Transactions reviewed', c.totalTransactions.toLocaleString('en-IN'), 'All recorded transactions'),
+      metricTile('Normal', c.normalCount.toLocaleString('en-IN'), 'Within expected pattern'),
+      metricTile('Anomalous', c.anomalousCount.toLocaleString('en-IN'), 'Flagged for review'),
+      metricTile('Anomaly rate', c.anomalyRate + '%', 'Share flagged'),
+      metricTile('High risk', String(c.riskHigh), 'Score ' + d.bands.high)
+    ].join('');
+
+    if(body){
+      body.innerHTML = (d.transactions || []).map(t=>`<tr data-txn="${escapeHtml(t.txnId)}">
+        <td>${escapeHtml(t.txnId)}</td>
+        <td>${escapeHtml(t.userName)}</td>
+        <td>${escapeHtml(fmtDate(t.date))}</td>
+        <td>${escapeHtml(t.categoryName)}</td>
+        <td class="${t.type==='DEBIT'?'amt-debit':'amt-credit'}">${escapeHtml(inr(t.amount))}</td>
+        <td>${escapeHtml(t.riskScore)}</td>
+        <td>${riskBadge(t.riskLevel)}</td>
+        <td>${statusBadge(t.status)}</td>
+      </tr>`).join('');
+      wireRiskRowClicks(body);
+    }
+    if(empty) empty.hidden = (d.transactions || []).length > 0;
+  }catch(err){
+    kpis.innerHTML = metricError('Could not load anomaly review: ' + (err && err.message ? err.message : 'unknown error'));
+    if(body) body.innerHTML = '';
+    if(empty) empty.hidden = true;
+  }
+}
+
+/* ---------------- RECOMMENDATIONS ---------------- */
+async function renderRecommendations(){
+  const userId = fillCustomerSelect($('#rec-user'),'recUser',false);
+  const metrics = $('#rec-metrics'), cats = $('#rec-categories'), list = $('#rec-list'),
+        disclaimer = $('#rec-disclaimer');
+  if(!metrics) return;
+
+  if(!userId){
+    metrics.innerHTML = metricError('No customers were returned by the warehouse.');
+    return;
+  }
+
+  metrics.innerHTML = '<div class="insight-metric"><div class="insight-metric-sub">Generating from recorded activity…</div></div>';
+
+  try{
+    const d = await fetchInsight('/api/insights/customer/' + encodeURIComponent(userId) + '/recommendations');
+
+    if(!d.sufficientHistory){
+      metrics.innerHTML = metricError(d.message || INSUFFICIENT_MSG);
+      if(cats) cats.innerHTML = '';
+      if(list) list.innerHTML = '';
+      if(disclaimer) disclaimer.textContent = '';
+      return;
+    }
+
+    const top = d.topCategories[0];
+    metrics.innerHTML = [
+      metricTile('Behaviour', d.behaviour, 'Spending trend: ' + d.spendingTrend),
+      metricTile('Transaction frequency', d.transactionFrequency, 'Across the recorded period'),
+      metricTile('Leading category', top ? top.name : '—', top ? top.shareOfSpend + '% of spend' : ''),
+      metricTile('Recommendations', String(d.recommendations.length), 'Generated from this customer\'s data')
+    ].join('');
+
+    if(cats){
+      cats.innerHTML = (d.topCategories || []).map((c,i)=>`
+        <div class="report-card">
+          <div class="report-icon" style="background:var(--accent-soft); color:var(--accent);">${ICONS.tag || ICONS.txn}</div>
+          <div class="report-info">
+            <h4>${escapeHtml(c.name)}</h4>
+            <p>${escapeHtml(c.group)} &middot; ${escapeHtml(c.transactionCount)} transactions &middot; ${escapeHtml(inr(c.totalSpend))}</p>
+          </div>
+          <div class="insight-metric-value">${escapeHtml(c.shareOfSpend + '%')}</div>
+        </div>`).join('');
+    }
+
+    if(list){
+      list.innerHTML = (d.recommendations || []).map(r=>`
+        <div class="rec-block">
+          <h4>${escapeHtml(r.title)}</h4>
+          <div class="rec-body">${escapeHtml(r.recommendation)}</div>
+          ${r.offer ? `<div class="rec-tag">Recommended offer</div><div class="rec-offer">${escapeHtml(r.offer)}</div>` : ''}
+          <div class="rec-tag">Why</div>
+          <div class="rec-why">${escapeHtml(r.reason)}</div>
+        </div>`).join('')
+        || metricError('Not enough activity recorded yet to generate a recommendation for this customer.');
+    }
+    if(disclaimer) disclaimer.textContent = d.disclaimer || '';
+  }catch(err){
+    metrics.innerHTML = metricError('Could not load recommendations: ' + (err && err.message ? err.message : 'unknown error'));
+    if(cats) cats.innerHTML = '';
+    if(list) list.innerHTML = '';
+  }
+}
+
 const RENDERERS = {
   dashboard: renderDashboard,
-  source: renderSourceTables,
-  dimension: renderDimensionTables,
-  fact: renderFactTables,
-  star: ()=>{ if(!initedPages.star){ buildStarSchema(); initedPages.star=true; } },
-  snowflake: ()=>{ if(!initedPages.snowflake){ buildSnowflakeSchema(); initedPages.snowflake=true; } },
-  galaxy: ()=>{ if(!initedPages.galaxy){ buildGalaxySchema(); initedPages.galaxy=true; } },
   transactions: renderTransactionsPage,
   ca: renderCaPage,
   user: renderUserAnalysis,
@@ -1099,6 +1279,9 @@ const RENDERERS = {
   category: renderCategoryAnalysis,
   time: renderTimeAnalysis,
   custom: renderCustomAnalysis,
+  spending: renderSpendingBehaviour,
+  anomaly: renderAnomalyAlerts,
+  recommendations: renderRecommendations,
   reports: renderReports,
   profile: renderProfile
 };

@@ -170,48 +170,6 @@
         </section>
       </section>
 
-      <!-- SOURCE TABLES -->
-      <section class="page" id="page-source">
-        <div class="page-header"><div><h1>Source tables</h1><div class="sub">OLTP tables identified for the practical, before ETL into the warehouse.</div></div></div>
-        <div class="tabs" id="source-tabs"></div>
-        <div id="source-panels"></div>
-      </section>
-
-      <!-- DIMENSION TABLES -->
-      <section class="page" id="page-dimension">
-        <div class="page-header"><div><h1>Dimension tables</h1><div class="sub">Conformed dimensions shared across both fact tables.</div></div></div>
-        <div class="tabs" id="dim-tabs"></div>
-        <div id="dim-panels"></div>
-      </section>
-
-      <!-- FACT TABLES -->
-      <section class="page" id="page-fact">
-        <div class="page-header"><div><h1>Fact tables</h1><div class="sub">The two measure tables at the centre of the warehouse.</div></div></div>
-        <div class="tabs" id="fact-tabs"></div>
-        <div id="fact-panels"></div>
-      </section>
-
-      <!-- STAR SCHEMA -->
-      <section class="page" id="page-star">
-        <div class="page-header"><div><h1>Star schema</h1><div class="sub">Powers the Dashboard: fewest joins, fastest reads.</div></div></div>
-        <p class="schema-note">Fact_Transactions joins directly to four denormalized dimensions. Every KPI card and chart on the Dashboard is a straightforward aggregate over this shape.</p>
-        <div class="schema-svg-wrap" id="star-schema-svg"></div>
-      </section>
-
-      <!-- SNOWFLAKE SCHEMA -->
-      <section class="page" id="page-snowflake">
-        <div class="page-header"><div><h1>Snowflake schema</h1><div class="sub">Powers the per-dimension analysis pages: less redundancy, more joins.</div></div></div>
-        <p class="schema-note">Dim_User and Dim_Bank are normalized further into Dim_City / Dim_IncomeBracket and Dim_AccountType. User Analysis and Bank Analysis walk these extra hops.</p>
-        <div class="schema-svg-wrap" id="snowflake-schema-svg"></div>
-      </section>
-
-      <!-- GALAXY SCHEMA -->
-      <section class="page" id="page-galaxy">
-        <div class="page-header"><div><h1>Galaxy schema (fact constellation)</h1><div class="sub">Powers Custom Analysis: two fact tables, conformed dimensions.</div></div></div>
-        <p class="schema-note">Fact_Transactions and Fact_CA_Sessions share the conformed Dim_User and Dim_Date dimensions (dashed teal links), which is what makes it possible to compare spend against CA activity for the same user and date in one query.</p>
-        <div class="schema-svg-wrap" id="galaxy-schema-svg"></div>
-      </section>
-
       <!-- TRANSACTIONS -->
       <section class="page" id="page-transactions">
         <div class="page-header">
@@ -254,7 +212,7 @@
         </div>
         <div class="chart-grid two">
           <div class="card"><div class="card-header"><h3>City-wise distribution</h3></div><div class="chart-wrap"><canvas id="chart-user-city"></canvas></div></div>
-          <div class="card"><div class="card-header"><h3>Spend vs. CA session fees</h3><span class="muted">Correlation</span></div><div class="chart-wrap"><canvas id="chart-user-correlation"></canvas></div></div>
+          <div class="card"><div class="card-header"><h3>Spend vs. CA session fees</h3><span class="muted">Side-by-side totals per user</span></div><div class="chart-wrap"><canvas id="chart-user-correlation"></canvas></div></div>
         </div>
         <div class="card">
           <div class="card-header"><h3>Users</h3></div>
@@ -316,6 +274,87 @@
         <div class="chart-grid two">
           <div class="card"><div class="card-header"><h3>Transaction value vs. CA session fees</h3></div><div class="chart-wrap"><canvas id="chart-custom"></canvas></div></div>
           <div class="card"><div class="card-header"><h3>Insights</h3><span class="muted">Computed from the current selection</span></div><ul class="insight-list" id="custom-insights"></ul></div>
+        </div>
+      </section>
+
+      <!-- SPENDING BEHAVIOUR -->
+      <section class="page" id="page-spending">
+        <div class="page-header">
+          <div><h1>Spending behaviour</h1><div class="sub">Behaviour prediction for each customer, derived from their own recorded transactions.</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-field">
+            <label>Customer</label>
+            <select id="spending-user"></select>
+          </div>
+        </div>
+        <div class="insight-metrics" id="spending-metrics" style="grid-template-columns:repeat(4,1fr);"></div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header"><h3>Spending insight</h3><span class="muted" id="spending-period"></span></div>
+          <p class="schema-note" id="spending-insight" style="margin:0;"></p>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Category breakdown</h3><span class="muted">Aggregated from recorded transactions</span></div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Category</th><th>Group</th><th>Transactions</th><th>Total</th><th>Average</th><th>Share of spend</th></tr></thead>
+              <tbody id="spending-cat-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ANOMALY ALERTS -->
+      <section class="page" id="page-anomaly">
+        <div class="page-header">
+          <div><h1>Anomaly alerts</h1><div class="sub">Transactions that stand out against each customer's own recorded pattern.</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-field">
+            <label>Customer</label>
+            <select id="anomaly-user"></select>
+          </div>
+          <div class="filter-field">
+            <label>Status</label>
+            <select id="anomaly-status">
+              <option value="">All transactions</option>
+              <option value="ANOMALOUS">Flagged only</option>
+              <option value="NORMAL">Normal only</option>
+            </select>
+          </div>
+        </div>
+        <div class="insight-metrics" id="anomaly-kpis" style="grid-template-columns:repeat(5,1fr);"></div>
+        <div class="card">
+          <div class="card-header"><h3>Transaction review</h3><span class="muted">Highest score first &mdash; select a row for the full assessment</span></div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Transaction</th><th>Customer</th><th>Date</th><th>Category</th><th>Amount</th><th>Score</th><th>Risk</th><th>Status</th></tr></thead>
+              <tbody id="anomaly-body"></tbody>
+            </table>
+          </div>
+          <p class="empty-note" id="anomaly-empty" hidden>No transactions were flagged against this customer's usual pattern.</p>
+        </div>
+      </section>
+
+      <!-- RECOMMENDATIONS -->
+      <section class="page" id="page-recommendations">
+        <div class="page-header">
+          <div><h1>Recommendations</h1><div class="sub">Personalised suggestions generated from each customer's actual spending pattern.</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-field">
+            <label>Customer</label>
+            <select id="rec-user"></select>
+          </div>
+        </div>
+        <div class="insight-metrics" id="rec-metrics" style="grid-template-columns:repeat(4,1fr);"></div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header"><h3>Top spending categories</h3><span class="muted">From recorded transactions</span></div>
+          <div class="report-grid" id="rec-categories"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>FINWARE recommendations</h3><span class="muted" id="rec-disclaimer"></span></div>
+          <div id="rec-list"></div>
         </div>
       </section>
 

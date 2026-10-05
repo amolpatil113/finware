@@ -282,6 +282,11 @@ tbody tr:last-child td{border-bottom:none;}
 .badge.completed{background:var(--teal-soft); color:var(--teal);}
 .badge.scheduled{background:var(--amber-soft); color:var(--amber);}
 .badge.cancelled{background:var(--coral-soft); color:var(--coral);}
+.badge.low{background:var(--teal-soft); color:var(--teal);}
+.badge.medium{background:var(--amber-soft); color:var(--amber);}
+.badge.high{background:var(--coral-soft); color:var(--coral);}
+.badge.normal{background:var(--teal-soft); color:var(--teal);}
+.badge.anomalous{background:var(--coral-soft); color:var(--coral);}
 .amt-debit{color:var(--coral); font-weight:600;}
 .amt-credit{color:var(--teal); font-weight:600;}
 
@@ -363,6 +368,15 @@ input:checked + .slider-toggle:before{transform:translateX(18px);}
 .toast.show{opacity:1; transform:translateY(0);}
 
 .empty-note{font-size:12.5px; color:var(--text-faint); padding:24px; text-align:center;}
+/* Insight recommendation blocks (Insights section) */
+.rec-block{background:var(--bg-app); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:12px;}
+.rec-block:last-child{margin-bottom:0;}
+.rec-block h4{font-size:13.5px; font-weight:600; margin-bottom:6px;}
+.rec-body{font-size:13px; line-height:1.55; color:var(--text-primary);}
+.rec-tag{font-size:10px; font-weight:700; letter-spacing:.06em; color:var(--text-faint); text-transform:uppercase; margin-top:11px;}
+.rec-offer{display:inline-block; margin-top:5px; padding:5px 11px; border-radius:8px; background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:600;}
+.rec-why{font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.5;}
+.rec-disclaimer{font-size:11.5px; color:var(--text-faint); margin-top:14px; font-style:italic;}
 
 /* ============================================================
    ANALYSIS & INSIGHTS
